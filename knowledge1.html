@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>传统信号处理 | Li Minfu</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,Helvetica,sans-serif;max-width:860px;margin:40px auto;padding:0 16px;line-height:1.75}
+    h1,h2,h3{line-height:1.3}
+    h1{margin-bottom:0.2rem}
+    .muted{color:#666}
+    a{color:#0b66d6;text-decoration:none} a:hover{text-decoration:underline}
+    .toc{background:#f6f8fa;border:1px solid #e5e7eb;border-radius:12px;padding:12px 16px;margin:20px 0}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 18px;margin:16px 0;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    pre{background:#0b1220;color:#e6edf3;border-radius:10px;padding:14px;overflow:auto}
+    .back{display:inline-block;margin:8px 0 16px 0}
+    .tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px}
+    .footer{margin:40px 0;color:#666;font-size:14px}
+    details summary{cursor:pointer;font-weight:600}
+  </style>
+  <!-- 可选：MathJax 用于公式渲染（需要联网） -->
+  <script async id="MathJax-script"
+    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <a class="back" href="index.html">← 返回主页</a>
+  <h1>传统信号处理 <span class="tag">Notes</span></h1>
+  <p class="muted">基础概念与常用公式、示例代码</p>
+
+  <!-- 目录 -->
+  <nav class="toc">
+    <strong>目录</strong>
+    <ol>
+      <li><a href="#fourier">傅里叶变换与频谱</a></li>
+      <li><a href="#sampling">采样定理与混叠</a></li>
+      <li><a href="#stft">短时傅里叶变换（STFT）</a></li>
+      <li><a href="#filters">数字滤波器（FIR/IIR）</a></li>
+      <li><a href="#tips">实践小贴士</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1. 傅里叶变换 -->
+  <section id="fourier" class="card">
+    <h2>1. 傅里叶变换与频谱</h2>
+    <p>连续时间信号 \(x(t)\) 的傅里叶变换为
+      \[
+        X(f)=\int_{-\infty}^{\infty} x(t)\,e^{-j2\pi f t}\,dt,
+      \]
+      离散序列 \(x[n]\) 的离散时间傅里叶变换（DTFT）为
+      \[
+        X(e^{j\omega})=\sum_{n=-\infty}^{\infty}x[n]\,e^{-j\omega n}.
+      \]
+      实际计算多用 N 点 DFT/FFT。
+    </p>
+    <details>
+      <summary>Python：读 WAV 做 FFT 幅度谱（简单示例）</summary>
+      <pre><code># pip install soundfile numpy
+import soundfile as sf
+import numpy as np
+
+x, fs = sf.read("example.wav")          # x: shape (N,) 或 (N,2)
+if x.ndim == 2: x = x.mean(axis=1)      # 转单声道
+N = len(x)
+win = np.hanning(N)
+X = np.fft.rfft(x * win)
+f = np.fft.rfftfreq(N, 1/fs)
+amp = (np.abs(X) / (N * win.mean())) * 2  # 单边幅度谱
+
+# 找主峰频率
+peak_idx = np.argmax(amp)
+print("Peak freq:", f[peak_idx], "Hz")</code></pre>
+    </details>
+  </section>
+
+  <!-- 2. 采样定理 -->
+  <section id="sampling" class="card">
+    <h2>2. 采样定理与混叠</h2>
+    <p>奈奎斯特采样定理：若信号最高频率为 \(f_\text{max}\)，采样率需满足
+      \[
+        f_s \ge 2 f_\text{max}
+      \]
+      才能无失真重构。若 \(f_s\) 不足，将产生混叠（高频“折叠”到低频）。
+    </p>
+    <details>
+      <summary>混叠快速判断</summary>
+      <p>单频 \(f_0\) 在采样率 \(f_s\) 下的观测等效频率：
+        \[
+          f_\text{alias} = \left| f_0 - k f_s \right|\quad \text{选择 }k\text{ 使得 }f_\text{alias}\in[0, f_s/2].
+        \]
+      </p>
+    </details>
+  </section>
+
+  <!-- 3. STFT -->
+  <section id="stft" class="card">
+    <h2>3. 短时傅里叶变换（STFT）</h2>
+    <p>STFT 通过窗口函数在时域上切片，对每片做 FFT 得到时-频表示：
+      \[
+        \text{STFT}\{x\}(m,k)=\sum_{n} x[n]\,w[n-mH]\,e^{-j2\pi kn/N},
+      \]s
+      其中 \(w\) 是窗函数，\(H\) 为 hop（步长），\(N\) 为每帧长度。
+    </p>
+    <details>
+      <summary>Python：用 SciPy 计算 STFT（幅度谱 dB）</summary>
+      <pre><code># pip install scipy soundfile numpy
+import numpy as np
+import soundfile as sf
+from scipy.signal import stft
+
+x, fs = sf.read("example.wav")
+if x.ndim == 2: x = x.mean(axis=1)
+f, t, Z = stft(x, fs=fs, nperseg=1024, noverlap=768, window='hann')
+mag_db = 20*np.log10(np.maximum(np.abs(Z), 1e-10))
+print("STFT shape:", Z.shape)  # (freq_bins, frames)</code></pre>
+    </details>
+  </section>
+
+  <!-- 4. 滤波器 -->
+  <section id="filters" class="card">
+    <h2>4. 数字滤波器（FIR / IIR）</h2>
+    <p>FIR：有限冲激响应，线性相位易实现，数值稳定；IIR：无限冲激响应，阶数低但相位非线性、需注意稳定性。</p>
+    <details>
+      <summary>Python：FIR 低通设计与应用</summary>
+      <pre><code># pip install scipy numpy
+import numpy as np
+from scipy.signal import firwin, lfilter
+
+fs = 48000
+cutoff = 8000
+numtaps = 255  # 滤波器阶数+1
+b = firwin(numtaps, cutoff, fs=fs)  # Hamming 窗 FIR
+y = lfilter(b, [1.0], np.random.randn(fs))  # 对随机信号滤波
+print("FIR taps:", b.shape)</code></pre>
+    </details>
+    <details>
+      <summary>Python：Butterworth IIR 低通</summary>
+      <pre><code>from scipy.signal import butter, filtfilt
+fs = 48000
+b, a = butter(N=6, Wn=8000, btype='low', fs=fs)
+y = filtfilt(b, a, np.random.randn(fs))  # 零相位双向滤波</code></pre>
+    </details>
+  </section>
+
+  <!-- 5. 实践建议 -->
+  <section id="tips" class="card">
+    <h2>5. 实践小贴士</h2>
+    <ul>
+      <li>做 FFT 前加窗并幅值校正：<code>amp = |X|/(N*win.mean())*2</code>；</li>
+      <li>画谱用 dB 时加底噪：<code>20*log10(max(|X|, 1e-10))</code>；</li>
+      <li>STFT 的 <code>hop</code> 常设为 <code>frame_len/4</code> 或 <code>/2</code> 以平衡分辨率与冗余；</li>
+      <li>滤波前后对齐可用 <code>filtfilt</code>（零相位）；</li>
+      <li>采样率变换请先低通再重采样。</li>
+    </ul>
+  </section>
+
+  <div class="footer">
+    最后更新：<span id="lastmod"></span> · <a href="index.html">返回主页</a>
+  </div>
+  <script>
+    // 显示页面最后更新时间（根据文件构建时间可能不精确）
+    document.getElementById('lastmod').textContent = new Date(document.lastModified).toLocaleString();
+  </script>
+</body>
+</html>
